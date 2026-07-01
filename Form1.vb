@@ -19,7 +19,7 @@ Public Class Form1
     Private Const BOARD_W As Integer = MARGIN * 2 + SQ * 8   ' 8 khoang = 9 duong doc
     Private Const BOARD_H As Integer = MARGIN * 2 + SQ * 9   ' 9 khoang = 10 duong ngang
     Private Const FORM_W As Integer = BOARD_W + 200
-    Private Const FORM_H As Integer = BOARD_H + 160
+    Private Const FORM_H As Integer = 980     ' cao them de cho card nguoi choi + khung chat
 
     Private game As XiangqiGame
     Private peer As NetworkPeer
@@ -48,7 +48,19 @@ Public Class Form1
     Private lblTurn As Label
     Private lblYouAre As Label
     Private btnRestart As Button
-    Private lstLog As ListBox
+
+    ' === Card thong tin nguoi choi (Do / Den) ===
+    Private Shared ReadOnly SideColor() As Color = {Color.FromArgb(190, 40, 40), Color.FromArgb(40, 40, 40)}
+    Private Shared ReadOnly SideNameVN() As String = {"DO", "DEN"}
+    Private pnlPlayers(1) As Panel
+    Private lblCardStatus(1) As Label
+    Private lblCardTag(1) As Label
+
+    ' === Khung chat (gop chung voi log he thong) ===
+    Private pnlChat As Panel
+    Private lstChat As ListBox
+    Private txtChatInput As TextBox
+    Private btnSend As Button
 
     Public Sub New()
         BuildCellCenters()
@@ -171,12 +183,104 @@ Public Class Form1
         AddHandler btnRestart.Click, AddressOf BtnRestart_Click
         pnlGame.Controls.Add(btnRestart)
 
-        lstLog = New ListBox()
-        lstLog.Location = New Point(4, BOARD_H + 10)
-        lstLog.Size = New Size(FORM_W - 20, 80)
-        pnlGame.Controls.Add(lstLog)
+        ' === Card "Do / Den" (giong kieu Co Vua) ===
+        Dim cardY As Integer = 4 + BOARD_H + 4 + 10
+        Dim cardW As Integer = (FORM_W - 20 - 10) \ 2
+        pnlPlayers(XiangqiGame.RED) = BuildPlayerCard(XiangqiGame.RED, New Point(4, cardY), cardW)
+        pnlGame.Controls.Add(pnlPlayers(XiangqiGame.RED))
+        pnlPlayers(XiangqiGame.BLK) = BuildPlayerCard(XiangqiGame.BLK, New Point(4 + cardW + 10, cardY), cardW)
+        pnlGame.Controls.Add(pnlPlayers(XiangqiGame.BLK))
+
+        ' === Khung chat, gop chung voi log he thong ===
+        Dim chatY As Integer = cardY + 58 + 10
+        Dim chatH As Integer = FORM_H - chatY - 12
+        BuildChatPanel(4, FORM_W - 8, chatY, chatH)
 
         Me.Controls.Add(pnlGame)
+    End Sub
+
+    ''' <summary>Tao 1 "card" nho hien mau ben + trang thai (dang di / dang cho / Ban) cho 1 ben.</summary>
+    Private Function BuildPlayerCard(side As Integer, loc As Point, w As Integer) As Panel
+        Dim card As New Panel()
+        card.Location = loc : card.Size = New Size(w, 58)
+        card.BackColor = Color.White
+        card.BorderStyle = BorderStyle.FixedSingle
+
+        Dim bar As New Panel()
+        bar.Location = New Point(0, 0) : bar.Size = New Size(6, 58)
+        bar.BackColor = SideColor(side)
+        card.Controls.Add(bar)
+
+        lblCardTag(side) = New Label()
+        lblCardTag(side).Text = SideNameVN(side)
+        lblCardTag(side).Font = New Font("Segoe UI", 9.5!, FontStyle.Bold)
+        lblCardTag(side).ForeColor = If(side = XiangqiGame.RED, Color.FromArgb(180, 30, 30), Color.Black)
+        lblCardTag(side).Location = New Point(16, 4) : lblCardTag(side).AutoSize = True
+        card.Controls.Add(lblCardTag(side))
+
+        lblCardStatus(side) = New Label()
+        lblCardStatus(side).Text = ""
+        lblCardStatus(side).Font = New Font("Segoe UI", 9.0!)
+        lblCardStatus(side).ForeColor = Color.DimGray
+        lblCardStatus(side).Location = New Point(16, 24) : lblCardStatus(side).AutoSize = True
+        lblCardStatus(side).MaximumSize = New Size(w - 24, 30)
+        card.Controls.Add(lblCardStatus(side))
+
+        Return card
+    End Function
+
+    ''' <summary>Khung chat: ListBox hien tin nhan (ca chat va log he thong) + TextBox go + nut Gui.</summary>
+    Private Sub BuildChatPanel(x As Integer, w As Integer, y As Integer, h As Integer)
+        pnlChat = New Panel()
+        pnlChat.Location = New Point(x, y)
+        pnlChat.Size = New Size(w, h)
+
+        lstChat = New ListBox()
+        lstChat.Location = New Point(0, 0)
+        lstChat.Size = New Size(w, h - 30)
+        pnlChat.Controls.Add(lstChat)
+
+        txtChatInput = New TextBox()
+        txtChatInput.Location = New Point(0, h - 26)
+        txtChatInput.Size = New Size(w - 55, 24)
+        AddHandler txtChatInput.KeyDown, Sub(s As Object, ev As KeyEventArgs)
+            If ev.KeyCode = Keys.Enter Then
+                BtnSend_Click(s, EventArgs.Empty)
+                ev.Handled = True
+                ev.SuppressKeyPress = True
+            End If
+        End Sub
+        pnlChat.Controls.Add(txtChatInput)
+
+        btnSend = New Button()
+        btnSend.Text = "Gui"
+        btnSend.Location = New Point(w - 50, h - 27)
+        btnSend.Size = New Size(50, 26)
+        AddHandler btnSend.Click, AddressOf BtnSend_Click
+        pnlChat.Controls.Add(btnSend)
+
+        pnlGame.Controls.Add(pnlChat)
+    End Sub
+
+    Private Sub BtnSend_Click(sender As Object, e As EventArgs)
+        If txtChatInput.Text.Trim() = "" Then Return
+        If localPlayer < 0 Then Return
+        Dim tag As String = SideNameVN(localPlayer)
+        Dim msg As String = txtChatInput.Text.Trim()
+        AppendChat(tag & ": " & msg)
+
+        If peer IsNot Nothing AndAlso peer.IsConnected Then
+            peer.SendLine("CHAT:" & tag & ":" & msg)
+        End If
+
+        txtChatInput.Text = ""
+        txtChatInput.Focus()
+    End Sub
+
+    Private Sub AppendChat(msg As String)
+        If lstChat Is Nothing Then Return
+        lstChat.Items.Add(msg)
+        lstChat.TopIndex = Math.Max(0, lstChat.Items.Count - 1)
     End Sub
 
     ' ============================================================
@@ -559,6 +663,14 @@ Public Class Form1
                     RefreshUI()
                 End If
             End If
+        ElseIf line.StartsWith("CHAT:") Then
+            Dim rest As String = line.Substring(5)
+            Dim sepIdx As Integer = rest.IndexOf(":"c)
+            If sepIdx > 0 Then
+                Dim tag As String = rest.Substring(0, sepIdx)
+                Dim msg As String = rest.Substring(sepIdx + 1)
+                AppendChat(tag & ": " & msg)
+            End If
         End If
     End Sub
 
@@ -598,6 +710,29 @@ Public Class Form1
             lblTurn.ForeColor = Color.Gray
         End If
         boardPanel.Invalidate()
+        RefreshPlayerCards()
+    End Sub
+
+    ''' <summary>Cap nhat trang thai hien tren 2 card "Do/Den": ai dang di, ai la Ban, ai dang bi chieu.</summary>
+    Private Sub RefreshPlayerCards()
+        Dim c As Integer
+        For c = 0 To 1
+            If lblCardStatus(c) Is Nothing Then Continue For
+            Dim parts As New List(Of String)()
+            If c = localPlayer Then parts.Add("Ban")
+            If game IsNot Nothing Then
+                If game.GameOver Then
+                    parts.Add("ket thuc")
+                ElseIf game.CurrentPlayer = c Then
+                    parts.Add("dang di")
+                Else
+                    parts.Add("dang cho")
+                End If
+                If game.IsKingInCheck(c) Then parts.Add("dang bi CHIEU")
+            End If
+            lblCardStatus(c).Text = String.Join(" - ", parts)
+            pnlPlayers(c).BorderStyle = If(game IsNot Nothing AndAlso Not game.GameOver AndAlso game.CurrentPlayer = c, BorderStyle.Fixed3D, BorderStyle.FixedSingle)
+        Next c
     End Sub
 
     Private Sub CheckAndShowGameOver()
@@ -606,9 +741,10 @@ Public Class Form1
         End If
     End Sub
 
+    ''' <summary>Log he thong (di quan, an quan, loi...) duoc gop chung vao khung chat,
+    ''' co tien to "⚙" de phan biet voi tin nhan chat cua nguoi choi.</summary>
     Private Sub AppendLog(msg As String)
-        lstLog.Items.Add(msg)
-        lstLog.TopIndex = lstLog.Items.Count - 1
+        AppendChat("⚙ " & msg)
     End Sub
 
 End Class
